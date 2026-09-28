@@ -10,8 +10,8 @@ up: ## Build and start the whole stack (API on http://localhost:8000)
 down: ## Stop the stack (add `-v` to docker compose to also drop the database)
 	docker compose down
 
-logs: ## Follow the API logs
-	docker compose logs -f api
+logs: ## Follow the API and worker logs
+	docker compose logs -f api worker
 
 services: ## Start only Postgres and Redis, for running the app or tests locally
 	docker compose up -d db redis

@@ -130,6 +130,15 @@ class BookingStatusEvent(models.Model):
         related_name="+",
         db_index=False,
     )
+    # The payment whose result caused this change, if any.
+    payment = models.ForeignKey(
+        "payments.Payment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=False,
+    )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:

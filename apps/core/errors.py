@@ -12,6 +12,8 @@ class DomainError(Exception):
     code: ClassVar[str] = "BAD_REQUEST"
     title: ClassVar[str] = "Bad request"
     default_detail: ClassVar[str] = "The request could not be processed."
+    # Sent with 401s: how the client should authenticate.
+    www_authenticate: ClassVar[str] = 'Bearer realm="eve-diagnostics"'
 
     def __init__(self, detail: str | None = None, **extra: Any) -> None:
         self.detail = detail or self.default_detail

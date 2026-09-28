@@ -26,7 +26,7 @@ from apps.core.middleware import current_request_id
 log = structlog.get_logger(__name__)
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
-AUTH_CHALLENGE = 'Bearer realm="eve-diagnostics"'
+AUTH_CHALLENGE = DomainError.www_authenticate
 
 # DRF exception → (code, title). Validation, throttling and token errors get richer bodies below.
 _DRF_PROBLEMS: tuple[tuple[type[drf.APIException], str, str], ...] = (
@@ -85,7 +85,8 @@ def exception_handler(exc: Exception, context: Mapping[str, Any]) -> Response:
             instance=instance,
             extensions=exc.extra,
         )
-        return _problem_response(body, headers=_auth_challenge(exc.status_code))
+        headers = {"WWW-Authenticate": exc.www_authenticate} if exc.status_code == 401 else None
+        return _problem_response(body, headers=headers)
 
     if is_transient_db_error(exc):
         log.warning("db.transient_error", error=type(exc.__cause__).__name__)
@@ -200,10 +201,6 @@ def _flatten_errors(detail: Any, path: str = "") -> Iterator[dict[str, Any]]:
             "code": getattr(detail, "code", "invalid"),
             "message": str(detail),
         }
-
-
-def _auth_challenge(status: int) -> dict[str, str]:
-    return {"WWW-Authenticate": AUTH_CHALLENGE} if status == 401 else {}
 
 
 def _problem_response(body: dict[str, Any], headers: Mapping[str, str] | None = None) -> Response:

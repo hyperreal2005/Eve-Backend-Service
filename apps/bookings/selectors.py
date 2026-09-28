@@ -20,21 +20,25 @@ def booking_list(*, user: User) -> QuerySet[Booking]:
 
 
 def booking_get(*, booking_id: UUID, user: User) -> Booking:
-    """A booking with its catalogue details and status history, as the caller may see it."""
+    """A booking with its catalogue details, payments and history, as the caller may see it."""
     history = BookingStatusEvent.objects.order_by("created_at", "id")
-    bookings = booking_list(user=user).prefetch_related(Prefetch("status_events", queryset=history))
+    bookings = booking_list(user=user).prefetch_related(
+        Prefetch("status_events", queryset=history), "payments"
+    )
     try:
         return bookings.get(id=booking_id)
     except Booking.DoesNotExist:
         raise BookingNotFound() from None
 
 
-def booking_lock(*, booking_id: UUID, user: User) -> Booking:
+def booking_lock(*, booking_id: UUID, user: User, owner_only: bool = False) -> Booking:
     """SELECT … FOR UPDATE on a booking the caller may act on. Call inside a transaction.
 
     The booking row is the lock that serialises every change to a booking and its payments.
+    With `owner_only`, administrators are treated like anyone else (only the patient pays).
     """
+    bookings = Booking.objects.filter(user=user) if owner_only else _visible_to(user)
     try:
-        return _visible_to(user).select_for_update().get(id=booking_id)
+        return bookings.select_for_update().get(id=booking_id)
     except Booking.DoesNotExist:
         raise BookingNotFound() from None

@@ -9,6 +9,7 @@ from apps.bookings.models import (
 )
 from apps.catalog.serializers import CentreSummarySerializer, DiagnosticTestSummarySerializer
 from apps.core.serializers import AwareDateTimeField, BlankAsNullChoiceField, StrictInputSerializer
+from apps.payments.serializers import PaymentSummarySerializer
 
 
 class BookingCreateSerializer(StrictInputSerializer):
@@ -64,16 +65,20 @@ class BookingStatusEventSerializer(serializers.ModelSerializer):
         choices=BookingStatusReason.choices, allow_null=True, read_only=True
     )
     actor_type = serializers.ChoiceField(choices=ActorType.choices, read_only=True)
+    payment_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="The payment whose result caused this change."
+    )
 
     class Meta:
         model = BookingStatusEvent
-        fields = ("from_status", "to_status", "reason", "actor_type", "created_at")
+        fields = ("from_status", "to_status", "reason", "actor_type", "payment_id", "created_at")
         read_only_fields = fields
 
 
 class BookingDetailSerializer(BookingSerializer):
+    payments = PaymentSummarySerializer(many=True, read_only=True)
     history = BookingStatusEventSerializer(source="status_events", many=True, read_only=True)
 
     class Meta(BookingSerializer.Meta):
-        fields = (*BookingSerializer.Meta.fields, "history")
+        fields = (*BookingSerializer.Meta.fields, "payments", "history")
         read_only_fields = fields

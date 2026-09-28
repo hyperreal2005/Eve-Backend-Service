@@ -4,6 +4,7 @@ import os
 
 os.environ.setdefault("DJANGO_SECRET_KEY", "test-only-django-secret-key-0123456789abcdefghijklmn")
 os.environ.setdefault("JWT_SIGNING_KEY", "test-only-jwt-signing-key-0123456789abcdefghijklmnop")
+os.environ.setdefault("WEBHOOK_SECRETS", "whsec_dGVzdC1vbmx5LW1vY2twYXktd2ViaG9vay1zZWNyZXQ=")
 
 from config.settings import *  # noqa: F403
 from config.settings import STORAGES
@@ -22,3 +23,8 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 WHITENOISE_AUTOREFRESH = True
+
+# No broker in tests: MockPay doesn't push webhooks on its own, and tests that exercise
+# background work run tasks eagerly (see the `eager_celery` fixture).
+CELERY_BROKER_URL = "memory://"
+MOCKPAY_WEBHOOKS_ENABLED = False

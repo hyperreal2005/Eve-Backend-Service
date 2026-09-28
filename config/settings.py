@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.catalog",
     "apps.bookings",
+    "apps.payments",
+    "apps.mockpay",
 ]
 
 MIDDLEWARE = [
@@ -179,6 +181,7 @@ REST_FRAMEWORK = {
         "user": env("THROTTLE_USER", default="600/min"),
         "auth_login": env("THROTTLE_AUTH_LOGIN", default="10/min"),
         "auth_signup": env("THROTTLE_AUTH_SIGNUP", default="20/hour"),
+        "payments": env("THROTTLE_PAYMENTS", default="30/min"),
     },
     # 0 = trust only REMOTE_ADDR. Behind a load balancer set this to the number of proxies,
     # otherwise clients could spoof X-Forwarded-For to dodge rate limits.
@@ -209,6 +212,8 @@ SPECTACULAR_SETTINGS = {
         "BookingStatusReasonEnum": "apps.bookings.models.BookingStatusReason",
         "ActorTypeEnum": "apps.bookings.models.ActorType",
         "DiagnosticCategoryEnum": "apps.catalog.models.DiagnosticCategory",
+        "PaymentStatusEnum": "apps.payments.models.PaymentStatus",
+        "RefundStatusEnum": "apps.payments.models.RefundStatus",
     },
 }
 
@@ -224,6 +229,71 @@ BOOKING_HOLD = timedelta(minutes=env.int("BOOKING_HOLD_MINUTES", default=15))
 BOOKING_CANCELLATION_CUTOFF = timedelta(
     hours=env.int("BOOKING_CANCELLATION_CUTOFF_HOURS", default=2)
 )
+
+
+# ---------------------------------------------------------------------------------- payments
+
+# The provider adapter (a PaymentGateway). MockPay simulates one; production would plug in a
+# real adapter here without touching bookings or payments.
+PAYMENT_GATEWAY = env("PAYMENT_GATEWAY", default="apps.mockpay.gateway.MockPayGateway")
+# Secrets accepted on incoming webhooks. Several may be listed so a secret can be rotated
+# without downtime: sign with the new one while still accepting the old.
+WEBHOOK_SECRETS = env.list("WEBHOOK_SECRETS")
+# How old a webhook signature may be before it's treated as a replay.
+WEBHOOK_TOLERANCE_SECONDS = env.int("WEBHOOK_TOLERANCE_SECONDS", default=300)
+
+# MockPay, the simulated provider.
+MOCKPAY_WEBHOOK_SECRET = env("MOCKPAY_WEBHOOK_SECRET", default=WEBHOOK_SECRETS[0])
+MOCKPAY_WEBHOOK_URL = env(
+    "MOCKPAY_WEBHOOK_URL", default="http://localhost:8000/api/v1/payments/webhook/"
+)
+# Chance that the default method (mock_random) succeeds.
+MOCKPAY_SUCCESS_RATE = env.float("MOCKPAY_SUCCESS_RATE", default=0.8)
+# Like a real provider, MockPay pushes results by webhook (needs a Celery worker): after a short
+# delay, at least once, retrying with backoff, and sometimes twice on purpose.
+MOCKPAY_WEBHOOKS_ENABLED = env.bool("MOCKPAY_WEBHOOKS_ENABLED", default=True)
+MOCKPAY_WEBHOOK_DELAY_SECONDS = env.int("MOCKPAY_WEBHOOK_DELAY_SECONDS", default=2)
+MOCKPAY_DUPLICATE_DELIVERY_RATE = env.float("MOCKPAY_DUPLICATE_DELIVERY_RATE", default=0.2)
+MOCKPAY_DELIVERY_MAX_ATTEMPTS = env.int("MOCKPAY_DELIVERY_MAX_ATTEMPTS", default=8)
+# How long an asynchronous (UPI-style) charge takes to settle.
+MOCKPAY_ASYNC_SETTLE_SECONDS = env.int("MOCKPAY_ASYNC_SETTLE_SECONDS", default=10)
+
+# Payments still PENDING after this long are checked with the provider by reconciliation.
+PAYMENT_RECONCILE_AFTER = timedelta(seconds=env.int("PAYMENT_RECONCILE_AFTER_SECONDS", default=120))
+
+
+# ------------------------------------------------------------------------------------ celery
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6380/1")
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    # A task a worker took but never acknowledged is redelivered after this.
+    "visibility_timeout": 3600,
+    "socket_connect_timeout": 1,
+}
+# Publishing fails fast when the broker is down: callers log it and carry on, since no request
+# depends on a task for correctness.
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    "max_retries": 2,
+    "interval_start": 0,
+    "interval_step": 0.2,
+    "interval_max": 0.5,
+}
+# At-least-once: acknowledge after the task finishes, so a crashed worker's task runs again.
+# Safe because every task is idempotent.
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_TIME_LIMIT = 60
+CELERY_TASK_SOFT_TIME_LIMIT = 45
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False  # keep the structured logging configured below
+CELERY_BEAT_SCHEDULE = {
+    "expire-stale-booking-holds": {"task": "bookings.expire_stale_holds", "schedule": 60.0},
+    "reconcile-stale-payments": {"task": "payments.reconcile_stale_payments", "schedule": 60.0},
+}
 
 
 # -------------------------------------------------------------------------- static & locale

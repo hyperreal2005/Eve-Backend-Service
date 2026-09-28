@@ -11,9 +11,10 @@ __pycache__/
 coverage.xml
 htmlcov/
 
-# Django
+# Django / Celery
 staticfiles/
 media/
+celerybeat-schedule*
 
 # Local configuration and secrets
 .env
@@ -24,5 +25,4 @@ media/
 .DS_Store
 Thumbs.db
 
-# Private working notes (design rationale + interview prep) and the assignment brief itself
 docs/

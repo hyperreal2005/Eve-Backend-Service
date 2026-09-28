@@ -10,10 +10,14 @@ x-app: &app
     # Development-only values. Production supplies real secrets through its environment.
     DJANGO_SECRET_KEY: dev-only-insecure-secret-key-change-me-0123456789abcdef
     JWT_SIGNING_KEY: dev-only-insecure-jwt-signing-key-0123456789abcdef0123
+    WEBHOOK_SECRETS: whsec_ZGV2LW9ubHktbW9ja3BheS13ZWJob29rLXNlY3JldCE=
     DJANGO_DEBUG: "false"
     DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
     DATABASE_URL: postgres://eve:eve@db:5432/eve
     REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/1
+    # MockPay's worker delivers webhooks to the API over the compose network.
+    MOCKPAY_WEBHOOK_URL: http://api:8000/api/v1/payments/webhook/
     LOG_JSON: "true"
 
 services:
@@ -61,6 +65,34 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Background work: MockPay's webhook deliveries and settlements, hold expiry, reconciliation.
+  worker:
+    <<: *app
+    command: ["celery", "-A", "config", "worker", "--loglevel", "INFO", "--concurrency", "2"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "config", "inspect", "ping", "--timeout", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The scheduler for the periodic jobs (exactly one instance).
+  beat:
+    <<: *app
+    command:
+      ["celery", "-A", "config", "beat", "--loglevel", "INFO", "--schedule", "/tmp/celerybeat-schedule"]
+    healthcheck:
+      disable: true
+    depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped

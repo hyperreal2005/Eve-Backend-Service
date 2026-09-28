@@ -20,6 +20,17 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
+def eager_celery():
+    """Run queued tasks immediately, in-process (countdowns are ignored), then restore."""
+    from config.celery import app
+
+    previous = (app.conf.task_always_eager, app.conf.task_eager_propagates)
+    app.conf.task_always_eager = app.conf.task_eager_propagates = True
+    yield app
+    app.conf.task_always_eager, app.conf.task_eager_propagates = previous
+
+
+@pytest.fixture
 def user(db) -> User:
     return UserFactory()
 

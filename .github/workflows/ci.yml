@@ -34,6 +34,7 @@ jobs:
       # Throwaway values: the settings refuse to start without secrets.
       DJANGO_SECRET_KEY: ci-only-not-a-secret-0123456789abcdefghijklmnop
       JWT_SIGNING_KEY: ci-only-not-a-secret-jwt-0123456789abcdefghijklm
+      WEBHOOK_SECRETS: whsec_Y2ktb25seS1tb2NrcGF5LXdlYmhvb2stc2VjcmV0ISE=
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6

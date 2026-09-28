@@ -6,6 +6,7 @@ from uuid import UUID
 import structlog
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -23,6 +24,8 @@ from apps.catalog.models import Offering
 from apps.catalog.selectors import centre_get, diagnostic_test_get
 from apps.core.db import translate_integrity_errors
 from apps.core.errors import FieldValidationError, InvalidStateTransition
+from apps.payments.errors import PaymentInProgress
+from apps.payments.models import Payment, PaymentStatus, RefundStatus
 
 log = structlog.get_logger(__name__)
 
@@ -85,11 +88,13 @@ def booking_cancel(*, booking_id: UUID, user: User) -> Booking:
         booking = booking_lock(booking_id=booking_id, user=user)
         if booking.status == BookingStatus.CANCELLED:
             return booking
-        if (
-            booking.status == BookingStatus.CONFIRMED
-            and booking.appointment_at - timezone.now() < settings.BOOKING_CANCELLATION_CUTOFF
-        ):
-            raise CancellationWindowClosed()
+        if booking.status == BookingStatus.PENDING and _payment_in_flight(booking):
+            # Cancelling now would race the payment and could leave money we'd have to refund.
+            raise PaymentInProgress()
+        if booking.status == BookingStatus.CONFIRMED:
+            if booking.appointment_at - timezone.now() < settings.BOOKING_CANCELLATION_CUTOFF:
+                raise CancellationWindowClosed()
+            _record_refund_owed(booking)
         by_admin = user.is_admin and booking.user_id != user.id
         booking_transition(
             booking,
@@ -105,6 +110,34 @@ def booking_cancel(*, booking_id: UUID, user: User) -> Booking:
     return booking
 
 
+def booking_expire_stale_holds(*, limit: int = 100) -> int:
+    """Fail unpaid bookings whose hold has lapsed, releasing their slot. Run by a periodic job.
+
+    Tidiness, not correctness: paying an expired booking is already refused at payment time.
+    Bookings with a payment in flight are left alone (elapsed time is no evidence the payment
+    failed; reconciliation asks the provider instead). SKIP LOCKED lets several sweepers, or a
+    sweeper and a payment, run side by side without waiting on each other.
+    """
+    in_flight = Payment.objects.filter(booking=OuterRef("pk"), status=PaymentStatus.PENDING)
+    with transaction.atomic():
+        stale = list(
+            Booking.objects.select_for_update(skip_locked=True)
+            .filter(status=BookingStatus.PENDING, hold_expires_at__lte=timezone.now())
+            .filter(~Exists(in_flight))
+            .order_by("hold_expires_at")[:limit]
+        )
+        for booking in stale:
+            booking_transition(
+                booking,
+                to=BookingStatus.FAILED,
+                reason=BookingStatusReason.PAYMENT_TIMEOUT,
+                actor_type=ActorType.SYSTEM,
+            )
+    if stale:
+        log.info("bookings.holds_expired", count=len(stale))
+    return len(stale)
+
+
 def booking_transition(
     booking: Booking,
     *,
@@ -112,11 +145,12 @@ def booking_transition(
     reason: BookingStatusReason | str = "",
     actor_type: ActorType,
     actor: User | None = None,
+    payment: Payment | None = None,
 ) -> None:
     """The one place a booking's status changes. The caller must hold the booking's row lock.
 
-    Guards the transition, stamps the matching timestamp and appends to the audit trail, all in
-    the caller's transaction.
+    Guards the transition, stamps the matching timestamp and appends to the audit trail (with the
+    payment that caused it, if any), all in the caller's transaction.
     """
     if not can_transition(booking.status, to):
         raise InvalidStateTransition(
@@ -135,7 +169,9 @@ def booking_transition(
         booking.cancelled_at = timezone.now()
         changed.append("cancelled_at")
     booking.save(update_fields=changed)
-    _record_event(booking, from_status=previous, actor_type=actor_type, actor=actor)
+    _record_event(
+        booking, from_status=previous, actor_type=actor_type, actor=actor, payment=payment
+    )
     log.info(
         "booking.transitioned",
         booking_id=str(booking.id),
@@ -171,8 +207,34 @@ def _duplicate_error(booking: Booking) -> DuplicateBooking:
     return DuplicateBooking(booking_id=str(existing)) if existing else DuplicateBooking()
 
 
+def _payment_in_flight(booking: Booking) -> bool:
+    return booking.payments.filter(status=PaymentStatus.PENDING).exists()
+
+
+def _record_refund_owed(booking: Booking) -> None:
+    """A paid booking is being cancelled: record the refund we owe (processing it is future work).
+
+    Called with the booking locked; the payment row is locked second, the same order every path
+    uses, so this can't deadlock with a webhook for the same payment.
+    """
+    for payment in booking.payments.select_for_update().filter(status=PaymentStatus.SUCCESS):
+        payment.refund_status = RefundStatus.PENDING
+        payment.save(update_fields=["refund_status", "updated_at"])
+        log.warning(
+            "payment.refund_owed",
+            payment_id=str(payment.id),
+            booking_id=str(booking.id),
+            reason="cancelled_after_payment",
+        )
+
+
 def _record_event(
-    booking: Booking, *, from_status: str, actor_type: ActorType, actor: User | None
+    booking: Booking,
+    *,
+    from_status: str,
+    actor_type: ActorType,
+    actor: User | None,
+    payment: Payment | None = None,
 ) -> None:
     BookingStatusEvent.objects.create(
         booking=booking,
@@ -181,4 +243,5 @@ def _record_event(
         reason=booking.status_reason,
         actor_type=actor_type,
         actor=actor,
+        payment=payment,
     )

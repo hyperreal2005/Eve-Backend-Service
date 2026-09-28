@@ -30,7 +30,7 @@ COPY --from=build /opt/venv /opt/venv
 COPY --chown=app:app . .
 
 # Static files for the admin and Swagger UI. The throwaway secrets exist only for this command.
-RUN DJANGO_SECRET_KEY=build-only JWT_SIGNING_KEY=build-only \
+RUN DJANGO_SECRET_KEY=build-only JWT_SIGNING_KEY=build-only WEBHOOK_SECRETS=whsec_YnVpbGQ= \
     python manage.py collectstatic --noinput --verbosity 0
 
 USER app
