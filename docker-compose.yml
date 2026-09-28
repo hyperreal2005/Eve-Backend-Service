@@ -1,0 +1,68 @@
+# `docker compose up --build` runs the whole stack with development settings; no .env needed.
+# Host ports 5433 (Postgres) and 6380 (Redis) avoid clashing with locally installed services.
+
+name: eve-diagnostics
+
+x-app: &app
+  build: .
+  image: eve-diagnostics:local
+  environment: &app-env
+    # Development-only values. Production supplies real secrets through its environment.
+    DJANGO_SECRET_KEY: dev-only-insecure-secret-key-change-me-0123456789abcdef
+    JWT_SIGNING_KEY: dev-only-insecure-jwt-signing-key-0123456789abcdef0123
+    DJANGO_DEBUG: "false"
+    DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
+    DATABASE_URL: postgres://eve:eve@db:5432/eve
+    REDIS_URL: redis://redis:6379/0
+    LOG_JSON: "true"
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: eve
+      POSTGRES_USER: eve
+      POSTGRES_PASSWORD: eve
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql (not .../data as before).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eve -d eve"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: apply migrations before the API starts, so web workers never race to migrate.
+  migrate:
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

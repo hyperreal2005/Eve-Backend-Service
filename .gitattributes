@@ -1,0 +1,6 @@
+# Normalise line endings to LF so scripts and configs behave the same on Windows and in Linux containers.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary

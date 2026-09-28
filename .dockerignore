@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+staticfiles
+.env
+# Documentation isn't needed at runtime (and docs/ holds private notes). Unlike .gitignore,
+# a bare `*.pdf` here would match only the context root, hence `**/`.
+docs
+**/*.pdf
