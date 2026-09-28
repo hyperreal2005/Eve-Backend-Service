@@ -2,7 +2,6 @@ import pytest
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from apps.accounts import services
 from apps.accounts.errors import EmailAlreadyRegistered, InvalidCredentials, InvalidRefreshToken
 from apps.accounts.services import auth_login, auth_logout, issue_tokens, user_create
 from apps.accounts.tests.factories import DEFAULT_PASSWORD, UserFactory
@@ -17,18 +16,18 @@ def test_user_create_normalises_the_email_and_hashes_the_password():
     assert user.check_password(DEFAULT_PASSWORD)
 
 
-def test_user_create_rejects_an_email_that_differs_only_in_case():
+def test_the_unique_constraint_rejects_an_email_that_differs_only_in_case():
     UserFactory(email="asha@example.com")
     with pytest.raises(EmailAlreadyRegistered):
         user_create(email="ASHA@example.com", password=DEFAULT_PASSWORD, full_name="Asha")
 
 
-def test_a_lost_signup_race_is_decided_by_the_unique_constraint(monkeypatch):
-    UserFactory(email="race@example.com")
-    # Simulate the other request committing between our check and our insert.
-    monkeypatch.setattr(services, "_email_taken", lambda email: False)
+def test_a_rejected_duplicate_leaves_the_enclosing_transaction_usable():
+    UserFactory(email="asha@example.com")
     with pytest.raises(EmailAlreadyRegistered):
-        user_create(email="race@example.com", password=DEFAULT_PASSWORD, full_name="Racer")
+        user_create(email="asha@example.com", password=DEFAULT_PASSWORD, full_name="Asha")
+    # The violation was confined to a savepoint, so this transaction can still be used.
+    assert user_create(email="ravi@example.com", password=DEFAULT_PASSWORD, full_name="Ravi")
 
 
 def test_auth_login_issues_tokens_with_the_expected_claims():

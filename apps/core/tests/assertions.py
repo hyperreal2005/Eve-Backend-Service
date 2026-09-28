@@ -1,8 +1,18 @@
+from collections.abc import Callable
 from typing import Any
 
+from django.db import connection
 from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 
 PROBLEM_JSON = "application/problem+json"
+
+
+def query_count(action: Callable[[], Any]) -> int:
+    """How many SQL queries `action` runs (for N+1 regression tests)."""
+    with CaptureQueriesContext(connection) as context:
+        action()
+    return len(context.captured_queries)
 
 
 def assert_problem(response: HttpResponse, status: int, code: str) -> dict[str, Any]:

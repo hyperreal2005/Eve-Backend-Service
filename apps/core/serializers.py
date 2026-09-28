@@ -1,8 +1,34 @@
 from collections.abc import Mapping
-from typing import Any
+from datetime import datetime
+from typing import Any, ClassVar
 
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
+
+
+class AwareDateTimeField(serializers.DateTimeField):
+    """Rejects datetimes without a UTC offset instead of silently assuming one.
+
+    "10:30" with no offset is ambiguous: read as UTC it's 16:00 in India. Asking the client to be
+    explicit is the only way to never book the wrong time.
+    """
+
+    default_error_messages: ClassVar[dict[str, str]] = {
+        "timezone_required": "Include a UTC offset, e.g. 2026-10-05T10:30:00+05:30.",
+    }
+
+    def enforce_timezone(self, value: datetime) -> datetime:
+        if timezone.is_naive(value):
+            self.fail("timezone_required")
+        return super().enforce_timezone(value)
+
+
+class BlankAsNullChoiceField(serializers.ChoiceField):
+    """Renders an empty choice (stored as "") as null."""
+
+    def to_representation(self, value: Any) -> Any:
+        return value or None
 
 
 class StrictInputSerializer(serializers.Serializer):

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import structlog
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
-from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings as jwt_settings
@@ -13,7 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.errors import EmailAlreadyRegistered, InvalidCredentials, InvalidRefreshToken
 from apps.accounts.models import Role, User, normalize_email
-from apps.core.db import constraint_name
+from apps.core.db import translate_integrity_errors
 
 log = structlog.get_logger(__name__)
 
@@ -29,25 +28,17 @@ class TokenPair:
 def user_create(
     *, email: str, password: str, full_name: str, phone: str = "", role: Role = Role.PATIENT
 ) -> User:
-    """Register a user. The unique constraint, not the pre-check, decides a race."""
-    email = normalize_email(email)
-    if _email_taken(email):
-        raise EmailAlreadyRegistered()
-    try:
-        with transaction.atomic():  # a savepoint, so a caller's transaction survives a lost race
-            user = User.objects.create_user(
-                email=email, password=password, full_name=full_name.strip(), phone=phone, role=role
-            )
-    except IntegrityError as exc:
-        if constraint_name(exc) == "users_email_uniq":
-            raise EmailAlreadyRegistered() from exc
-        raise
+    """Register a user. The unique constraint decides duplicates, including concurrent ones."""
+    with translate_integrity_errors({"users_email_uniq": EmailAlreadyRegistered}):
+        user = User.objects.create_user(
+            email=normalize_email(email),
+            password=password,
+            full_name=full_name.strip(),
+            phone=phone,
+            role=role,
+        )
     log.info("user.registered", user_id=str(user.id), role=user.role)
     return user
-
-
-def _email_taken(email: str) -> bool:
-    return User.objects.filter(email=email).exists()
 
 
 def auth_login(*, email: str, password: str, request: HttpRequest | None = None) -> TokenPair:

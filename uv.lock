@@ -223,6 +223,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "redis" },
     { name = "structlog" },
+    { name = "tzdata" },
     { name = "whitenoise" },
 ]
 
@@ -249,6 +250,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "redis", specifier = ">=5.2" },
     { name = "structlog", specifier = ">=25.1" },
+    { name = "tzdata", specifier = ">=2025.2" },
     { name = "whitenoise", specifier = ">=6.9" },
 ]
 

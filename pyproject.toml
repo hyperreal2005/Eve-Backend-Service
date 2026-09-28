@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "redis>=5.2",
     "structlog>=25.1",
+    "tzdata>=2025.2",
     "whitenoise>=6.9",
 ]
 

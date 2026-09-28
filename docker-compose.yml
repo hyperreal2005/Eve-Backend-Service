@@ -44,10 +44,11 @@ services:
       timeout: 3s
       retries: 20
 
-  # One-shot: apply migrations before the API starts, so web workers never race to migrate.
+  # One-shot: apply migrations (and the idempotent demo seed) before the API starts, so web
+  # workers never race to migrate.
   migrate:
     <<: *app
-    command: ["python", "manage.py", "migrate", "--noinput"]
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py seed_demo"]
     depends_on:
       db:
         condition: service_healthy

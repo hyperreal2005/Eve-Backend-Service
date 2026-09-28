@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     "apps.core",
     "apps.accounts",
+    "apps.catalog",
+    "apps.bookings",
 ]
 
 MIDDLEWARE = [
@@ -201,7 +203,27 @@ SPECTACULAR_SETTINGS = {
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "REDOC_DIST": "SIDECAR",
     "SWAGGER_UI_SETTINGS": {"persistAuthorization": True, "displayRequestDuration": True},
+    # Stable enum names in the schema, however many fields share a set of choices.
+    "ENUM_NAME_OVERRIDES": {
+        "BookingStatusEnum": "apps.bookings.models.BookingStatus",
+        "BookingStatusReasonEnum": "apps.bookings.models.BookingStatusReason",
+        "ActorTypeEnum": "apps.bookings.models.ActorType",
+        "DiagnosticCategoryEnum": "apps.catalog.models.DiagnosticCategory",
+    },
 }
+
+
+# --------------------------------------------------------------------------- business policy
+
+BOOKING_MIN_LEAD = timedelta(minutes=env.int("BOOKING_MIN_LEAD_MINUTES", default=60))
+BOOKING_MAX_ADVANCE = timedelta(days=env.int("BOOKING_MAX_ADVANCE_DAYS", default=30))
+BOOKING_SLOT_MINUTES = env.int("BOOKING_SLOT_MINUTES", default=15)
+# How long an unpaid booking holds its slot.
+BOOKING_HOLD = timedelta(minutes=env.int("BOOKING_HOLD_MINUTES", default=15))
+# Confirmed bookings can be cancelled until this long before the appointment.
+BOOKING_CANCELLATION_CUTOFF = timedelta(
+    hours=env.int("BOOKING_CANCELLATION_CUTOFF_HOURS", default=2)
+)
 
 
 # -------------------------------------------------------------------------- static & locale

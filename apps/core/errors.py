@@ -20,6 +20,23 @@ class DomainError(Exception):
         super().__init__(self.detail)
 
 
+class FieldValidationError(DomainError):
+    """A business rule about one input field, rendered exactly like a serializer error.
+
+    For rules that need the database (e.g. a centre's opening hours), so they can't live in the
+    serializer, but should still look like any other 400 to the client.
+    """
+
+    code = "VALIDATION_ERROR"
+    title = "Invalid request"
+
+    def __init__(self, *, field: str, code: str, message: str) -> None:
+        super().__init__(
+            "One or more fields are invalid.",
+            errors=[{"field": field, "code": code, "message": message}],
+        )
+
+
 class NotFound(DomainError):
     status_code = 404
     code = "NOT_FOUND"

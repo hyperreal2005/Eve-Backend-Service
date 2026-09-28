@@ -48,7 +48,13 @@ def problem_type(code: str) -> str:
 
 
 def problem_body(
-    *, status: int, code: str, title: str, detail: str, instance: str, **extensions: Any
+    *,
+    status: int,
+    code: str,
+    title: str,
+    detail: str,
+    instance: str,
+    extensions: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "type": problem_type(code),
@@ -59,7 +65,9 @@ def problem_body(
         "code": code,
         "request_id": current_request_id(),
     }
-    body.update(extensions)
+    # Extension members add detail but can never overwrite the standard ones.
+    for key, value in (extensions or {}).items():
+        body.setdefault(key, value)
     return body
 
 
@@ -75,7 +83,7 @@ def exception_handler(exc: Exception, context: Mapping[str, Any]) -> Response:
             title=exc.title,
             detail=exc.detail,
             instance=instance,
-            **exc.extra,
+            extensions=exc.extra,
         )
         return _problem_response(body, headers=_auth_challenge(exc.status_code))
 
@@ -137,7 +145,7 @@ def _drf_problem(exc: Exception, status: int, instance: str) -> dict[str, Any]:
             title="Invalid request",
             detail="One or more fields are invalid.",
             instance=instance,
-            errors=list(_flatten_errors(exc.detail)),
+            extensions={"errors": list(_flatten_errors(exc.detail))},
         )
     if isinstance(exc, drf.Throttled):
         return problem_body(
@@ -146,7 +154,7 @@ def _drf_problem(exc: Exception, status: int, instance: str) -> dict[str, Any]:
             title="Too many requests",
             detail="Request rate limit exceeded.",
             instance=instance,
-            retry_after=exc.wait,
+            extensions={"retry_after": exc.wait},
         )
     if isinstance(exc, InvalidToken):
         return problem_body(

@@ -2,6 +2,7 @@ import pytest
 from django.test import Client
 from structlog.testing import capture_logs
 
+from apps.core.problem_details import problem_body
 from apps.core.tests.assertions import assert_problem, field_errors
 
 LOGIN_URL = "/api/v1/auth/login/"
@@ -56,6 +57,18 @@ def test_transient_database_error_is_a_retryable_503(api_client):
     response = api_client.get("/test/lock-timeout/")
     assert_problem(response, 503, "SERVICE_UNAVAILABLE")
     assert response["Retry-After"] == "1"
+
+
+def test_extension_members_never_overwrite_standard_members():
+    body = problem_body(
+        status=409,
+        code="CONFLICT",
+        title="Conflict",
+        detail="d",
+        instance="/x",
+        extensions={"status": "PENDING", "booking_id": "b-1"},
+    )
+    assert (body["status"], body["booking_id"]) == (409, "b-1")
 
 
 @pytest.mark.urls("apps.core.tests.urls")
