@@ -118,6 +118,9 @@ class Offering(BaseModel):
     test = models.ForeignKey(DiagnosticTest, on_delete=models.PROTECT, related_name="offerings")
     price = models.IntegerField(help_text="In paise: 150000 is ₹1,500.00.")
     currency = models.CharField(max_length=3, default="INR")
+    # How many patients one appointment slot can take (an MRI scanner: one). Null means no limit,
+    # as for sample collection.
+    slot_capacity = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     objects: ClassVar[OfferingQuerySet] = OfferingQuerySet.as_manager()  # type: ignore[assignment]
@@ -129,6 +132,10 @@ class Offering(BaseModel):
             models.CheckConstraint(condition=Q(price__gt=0), name="offerings_price_positive"),
             models.CheckConstraint(
                 condition=Q(currency__regex=r"^[A-Z]{3}$"), name="offerings_currency_format"
+            ),
+            models.CheckConstraint(
+                condition=Q(slot_capacity__isnull=True) | Q(slot_capacity__gt=0),
+                name="offerings_slot_capacity_positive",
             ),
         )
         indexes = (

@@ -1,12 +1,14 @@
-"""Pure booking rules: the state machine and the appointment-time policy.
+"""Pure booking rules: the state machine, the appointment-time policy and the slot grid.
 
 No database and no clock: callers pass `now` in, so every rule is testable at its boundaries.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
+
+from django.conf import settings
 
 from apps.bookings.models import BookingStatus
 
@@ -31,6 +33,14 @@ class AppointmentPolicy:
     min_lead: timedelta
     max_advance: timedelta
     slot_minutes: int
+
+    @classmethod
+    def from_settings(cls) -> "AppointmentPolicy":
+        return cls(
+            min_lead=settings.BOOKING_MIN_LEAD,
+            max_advance=settings.BOOKING_MAX_ADVANCE,
+            slot_minutes=settings.BOOKING_SLOT_MINUTES,
+        )
 
 
 @dataclass(frozen=True)
@@ -79,3 +89,21 @@ def check_appointment(
             f"The centre is open {opens_at:%H:%M}-{closes_at:%H:%M} ({timezone}).",
         )
     return None
+
+
+def day_slots(
+    day: date, *, opens_at: time, closes_at: time, timezone: str, slot_minutes: int
+) -> list[datetime]:
+    """The start of every slot at a centre on `day` (its local date), as aware datetimes.
+
+    Exactly the times `check_appointment` accepts as on a slot boundary and within opening
+    hours: slots start on the boundary at or after opening, and end by closing time.
+    """
+    opening = opens_at.hour * 60 + opens_at.minute + bool(opens_at.second or opens_at.microsecond)
+    closing = closes_at.hour * 60 + closes_at.minute
+    first = -(-opening // slot_minutes) * slot_minutes  # round up to a slot boundary
+    zone = ZoneInfo(timezone)
+    return [
+        datetime.combine(day, time(minute // 60, minute % 60), tzinfo=zone)
+        for minute in range(first, closing - slot_minutes + 1, slot_minutes)
+    ]

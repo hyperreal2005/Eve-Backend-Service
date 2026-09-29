@@ -69,3 +69,23 @@ def test_eight_simultaneous_pay_clicks_charge_once():
     assert sorted(statuses) == [201] + [409] * 7
     assert Payment.objects.count() == 1
     assert MockCharge.objects.count() == 1
+
+
+def test_eight_simultaneous_retries_with_one_idempotency_key_charge_once():
+    booking = BookingFactory()
+    header = bearer(booking.user)
+
+    def click(_: int) -> tuple[int, str]:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=header)
+        payload = {"booking_id": str(booking.id), "payment_method": "mock_success"}
+        response = client.post(PAYMENTS_URL, payload, format="json", HTTP_IDEMPOTENCY_KEY="k1")
+        return response.status_code, response.json()["id"]
+
+    results = run_concurrently(8, click)
+
+    assert {status for status, _ in results} == {201}
+    assert len({payment_id for _, payment_id in results}) == 1
+    assert (Payment.objects.count(), MockCharge.objects.count()) == (1, 1)
+    booking.refresh_from_db()
+    assert booking.status == "CONFIRMED"

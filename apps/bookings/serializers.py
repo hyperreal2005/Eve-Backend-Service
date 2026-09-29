@@ -82,3 +82,30 @@ class BookingDetailSerializer(BookingSerializer):
     class Meta(BookingSerializer.Meta):
         fields = (*BookingSerializer.Meta.fields, "payments", "history")
         read_only_fields = fields
+
+
+# ------------------------------------------------------------------------------ availability
+
+
+class AvailabilityQuerySerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="A date in the centre's time zone, e.g. 2026-10-05.")
+
+
+class SlotSerializer(serializers.Serializer):
+    start = serializers.DateTimeField()
+    remaining = serializers.IntegerField(
+        allow_null=True, help_text="Places left in the slot; null means no limit."
+    )
+    available = serializers.BooleanField(
+        help_text="Whether a booking for this slot would be accepted right now."
+    )
+
+
+class AvailabilitySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    timezone = serializers.CharField(help_text="The centre's time zone, which `date` is local to.")
+    slot_minutes = serializers.IntegerField()
+    slot_capacity = serializers.IntegerField(
+        allow_null=True, help_text="Patients per slot; null means no limit."
+    )
+    slots = SlotSerializer(many=True)

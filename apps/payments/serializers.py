@@ -22,11 +22,8 @@ class PaymentCreateSerializer(StrictInputSerializer):
         gateway = get_gateway()
         self.fields["payment_method"] = serializers.ChoiceField(
             choices=list(gateway.payment_methods),
-            required=False,
-            help_text=(
-                f"A test payment method of the configured provider ({gateway.name}). "
-                f"Defaults to {gateway.default_method}."
-            ),
+            default=gateway.default_method,
+            help_text=f"A test payment method of the configured provider ({gateway.name}).",
         )
 
 

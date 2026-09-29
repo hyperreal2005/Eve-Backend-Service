@@ -50,6 +50,9 @@ TESTS: list[tuple[str, str, str, str]] = [
     ("ECG", "Electrocardiogram (ECG)", CARDIOLOGY, "No preparation needed."),
 ]
 
+# Patients per 15-minute slot for tests bound to one machine or room. The rest are unlimited.
+SLOT_CAPACITY = {"MRI_BRAIN": 1, "CT_CHEST": 1, "MAMMO": 1, "DEXA": 1, "USG_ABDOMEN": 2}
+
 # Prices in whole rupees; stored in paise.
 CENTRES: list[dict[str, Any]] = [
     {
@@ -174,7 +177,9 @@ class Command(BaseCommand):
             )
             for code, rupees in data["prices"].items():
                 _, created = Offering.objects.get_or_create(
-                    centre=centre, test=tests[code], defaults={"price": rupees * 100}
+                    centre=centre,
+                    test=tests[code],
+                    defaults={"price": rupees * 100, "slot_capacity": SLOT_CAPACITY.get(code)},
                 )
                 offerings_created += created
 

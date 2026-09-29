@@ -27,6 +27,11 @@ def test_price_must_be_positive():
     assert_rejected(lambda: Offering.objects.filter(pk=offering.pk).update(price=0))
 
 
+def test_a_slot_capacity_must_be_positive_when_set():
+    offering = OfferingFactory()
+    assert_rejected(lambda: Offering.objects.filter(pk=offering.pk).update(slot_capacity=0))
+
+
 def test_a_centre_offers_each_test_at_most_once():
     offering = OfferingFactory()
     assert_rejected(lambda: OfferingFactory(centre=offering.centre, test=offering.test))

@@ -106,7 +106,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ------------------------------------------------------------------------------------- cache
 
-# Backs rate limiting (and catalog caching later). It fails open: losing Redis degrades service
+# Backs rate limiting and the catalogue cache. It fails open: losing Redis degrades service
 # instead of breaking it.
 CACHES = {
     "default": {
@@ -116,6 +116,9 @@ CACHES = {
         "OPTIONS": {"socket_connect_timeout": 0.5, "socket_timeout": 0.5},
     }
 }
+# Public catalogue reads are cached this long; any catalogue write retires them at once, so this
+# only bounds staleness if that invalidation is lost. 0 turns the cache off.
+CATALOG_CACHE_SECONDS = env.int("CATALOG_CACHE_SECONDS", default=300)
 
 
 # -------------------------------------------------------------------------------- auth & users

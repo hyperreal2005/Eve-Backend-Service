@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
+from apps.catalog.cache import cached_public_read
 from apps.catalog.filters import CentreFilter, DiagnosticTestFilter, OfferingFilter
 from apps.catalog.models import DiagnosticCentre, DiagnosticTest, Offering
 from apps.catalog.selectors import (
@@ -93,6 +94,7 @@ class CentreListCreateApi(_CatalogListView):
         summary="List diagnostic centres",
         responses={200: CentreSerializer(many=True), **problem_responses(400)},
     )
+    @cached_public_read
     def get(self, request: Request) -> Response:
         return self.paginated(CentreSerializer)
 
@@ -116,6 +118,7 @@ class CentreDetailApi(_CatalogView):
         summary="A centre and the tests it offers, with prices",
         responses={200: CentreDetailSerializer, **problem_responses(404)},
     )
+    @cached_public_read
     def get(self, request: Request, centre_id: UUID) -> Response:
         centre = centre_get_with_offerings(
             centre_id=centre_id, include_inactive=self.include_inactive
@@ -166,6 +169,7 @@ class CentreOfferingListCreateApi(_CatalogListView):
         summary="Tests offered at a centre, with prices",
         responses={200: OfferingSerializer(many=True), **problem_responses(404)},
     )
+    @cached_public_read
     def get(self, request: Request, centre_id: UUID) -> Response:
         centre_get(centre_id=centre_id, include_inactive=self.include_inactive)  # 404 if unknown
         return self.paginated(OfferingSerializer)
@@ -199,6 +203,7 @@ class CentreOfferingDetailApi(_CatalogView):
         summary="One test as offered at a centre",
         responses={200: OfferingSerializer, **problem_responses(404)},
     )
+    @cached_public_read
     def get(self, request: Request, centre_id: UUID, test_id: UUID) -> Response:
         offering = self._offering(centre_id, test_id, self.include_inactive)
         return Response(OfferingSerializer(offering).data)
@@ -245,6 +250,7 @@ class DiagnosticTestListCreateApi(_CatalogListView):
         summary="List the test catalogue",
         responses={200: DiagnosticTestSerializer(many=True), **problem_responses(400)},
     )
+    @cached_public_read
     def get(self, request: Request) -> Response:
         return self.paginated(DiagnosticTestSerializer)
 
@@ -268,6 +274,7 @@ class DiagnosticTestDetailApi(_CatalogView):
         summary="A test from the catalogue",
         responses={200: DiagnosticTestSerializer, **problem_responses(404)},
     )
+    @cached_public_read
     def get(self, request: Request, test_id: UUID) -> Response:
         test = diagnostic_test_get(test_id=test_id, include_inactive=self.include_inactive)
         return Response(DiagnosticTestSerializer(test).data)
@@ -316,6 +323,7 @@ class DiagnosticTestCentresApi(_CatalogListView):
         summary="Centres offering a test, with their prices",
         responses={200: CentreOfferingSerializer(many=True), **problem_responses(400, 404)},
     )
+    @cached_public_read
     def get(self, request: Request, test_id: UUID) -> Response:
         diagnostic_test_get(test_id=test_id, include_inactive=self.include_inactive)  # 404
         return self.paginated(CentreOfferingSerializer)

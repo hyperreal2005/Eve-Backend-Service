@@ -6,7 +6,7 @@ from apps.catalog.models import DiagnosticCentre, DiagnosticTest, Offering
 class OfferingInline(admin.TabularInline):
     model = Offering
     extra = 0
-    fields = ("test", "price", "currency", "is_active")
+    fields = ("test", "price", "currency", "slot_capacity", "is_active")
     autocomplete_fields = ("test",)
 
 
@@ -29,7 +29,7 @@ class DiagnosticTestAdmin(admin.ModelAdmin):
 
 @admin.register(Offering)
 class OfferingAdmin(admin.ModelAdmin):
-    list_display = ("test", "centre", "price", "currency", "is_active")
+    list_display = ("test", "centre", "price", "currency", "slot_capacity", "is_active")
     list_filter = ("is_active", "test__category")
     search_fields = ("centre__name", "test__name", "test__code")
     list_select_related = ("centre", "test")

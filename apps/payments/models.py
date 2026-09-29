@@ -43,6 +43,9 @@ class Payment(BaseModel):
         max_length=16, choices=RefundStatus.choices, blank=True, default=""
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    # From the creating request's Idempotency-Key header, if it sent one.
+    idempotency_key = models.CharField(max_length=255, blank=True, default="")
+    request_fingerprint = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         db_table = "payments"
@@ -53,6 +56,12 @@ class Payment(BaseModel):
                 fields=("booking",),
                 condition=Q(status__in=LIVE_STATUSES),
                 name="payments_one_live_per_booking",
+            ),
+            # The key leads: a replay looks the key up first, then checks the patient.
+            models.UniqueConstraint(
+                fields=("idempotency_key", "booking"),
+                condition=~Q(idempotency_key=""),
+                name="payments_idempotency_key_uniq",
             ),
             models.UniqueConstraint(
                 fields=("provider", "provider_payment_id"),

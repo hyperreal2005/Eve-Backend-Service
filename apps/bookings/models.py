@@ -65,6 +65,10 @@ class Booking(BaseModel):
     hold_expires_at = models.DateTimeField()
     confirmed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    # From the creating request's Idempotency-Key header, if it sent one: a retry with the same
+    # key gets this booking back instead of making another.
+    idempotency_key = models.CharField(max_length=255, blank=True, default="")
+    request_fingerprint = models.CharField(max_length=64, blank=True, default="")
 
     objects: ClassVar[BookingQuerySet] = BookingQuerySet.as_manager()  # type: ignore[assignment]
 
@@ -76,6 +80,11 @@ class Booking(BaseModel):
                 fields=("user", "offering", "appointment_at"),
                 condition=Q(status__in=ACTIVE_STATUSES),
                 name="bookings_one_active_per_slot",
+            ),
+            models.UniqueConstraint(
+                fields=("user", "idempotency_key"),
+                condition=~Q(idempotency_key=""),
+                name="bookings_idempotency_key_uniq",
             ),
             models.CheckConstraint(condition=Q(amount__gt=0), name="bookings_amount_positive"),
             models.CheckConstraint(

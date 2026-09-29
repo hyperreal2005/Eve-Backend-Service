@@ -21,6 +21,12 @@ class DuplicateBooking(Conflict):
     default_detail = "You already have an active booking for this test, centre and time."
 
 
+class SlotFull(Conflict):
+    code = "SLOT_FULL"
+    title = "Slot fully booked"
+    default_detail = "This time is fully booked for this test at this centre. Choose another slot."
+
+
 class CancellationWindowClosed(Conflict):
     code = "CANCELLATION_WINDOW_CLOSED"
     title = "Too late to cancel"

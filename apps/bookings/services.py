@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.bookings.domain import AppointmentPolicy, can_transition, check_appointment
-from apps.bookings.errors import CancellationWindowClosed, DuplicateBooking, NotOffered
+from apps.bookings.errors import CancellationWindowClosed, DuplicateBooking, NotOffered, SlotFull
 from apps.bookings.models import (
     ActorType,
     Booking,
@@ -19,55 +19,66 @@ from apps.bookings.models import (
     BookingStatusEvent,
     BookingStatusReason,
 )
-from apps.bookings.selectors import booking_lock
+from apps.bookings.selectors import booking_lock, bookings_holding_slots
 from apps.catalog.models import Offering
 from apps.catalog.selectors import centre_get, diagnostic_test_get
-from apps.core.db import translate_integrity_errors
+from apps.core.db import advisory_xact_lock, translate_integrity_errors
 from apps.core.errors import FieldValidationError, InvalidStateTransition
+from apps.core.idempotency import IdempotencyKey
 from apps.payments.errors import PaymentInProgress
 from apps.payments.models import Payment, PaymentStatus, RefundStatus
 
 log = structlog.get_logger(__name__)
 
 
-def appointment_policy() -> AppointmentPolicy:
-    return AppointmentPolicy(
-        min_lead=settings.BOOKING_MIN_LEAD,
-        max_advance=settings.BOOKING_MAX_ADVANCE,
-        slot_minutes=settings.BOOKING_SLOT_MINUTES,
-    )
-
-
 def booking_create(
-    *, user: User, centre_id: UUID, test_id: UUID, appointment_at: datetime
+    *,
+    user: User,
+    centre_id: UUID,
+    test_id: UUID,
+    appointment_at: datetime,
+    idempotency_key: IdempotencyKey | None = None,
 ) -> Booking:
-    """Book a test for the caller: PENDING, with the price snapshotted and a payment hold."""
-    offering = _bookable_offering(centre_id=centre_id, test_id=test_id)
-    centre = offering.centre
-    now = timezone.now()
-    violation = check_appointment(
-        appointment_at,
-        now=now,
-        opens_at=centre.opens_at,
-        closes_at=centre.closes_at,
-        timezone=centre.timezone,
-        policy=appointment_policy(),
-    )
-    if violation is not None:
-        raise FieldValidationError(
-            field="appointment_at", code=violation.code, message=violation.message
-        )
+    """Book a test for the caller: PENDING, with the price snapshotted and a payment hold.
 
-    booking = Booking(
-        user=user,
-        offering=offering,
-        appointment_at=appointment_at,
-        amount=offering.price,
-        currency=offering.currency,
-        status=BookingStatus.PENDING,
-        hold_expires_at=min(now + settings.BOOKING_HOLD, appointment_at),
-    )
+    With an idempotency key already used by the caller, returns the booking that request made,
+    as it is now. That comes first: a retry must get its booking even if, by now, the time is too
+    close or the test has been withdrawn.
+    """
+    now = timezone.now()
     with transaction.atomic():
+        if idempotency_key is not None:
+            earlier = _booking_for_key(user, idempotency_key)
+            if earlier is not None:
+                return earlier
+        offering = _bookable_offering(centre_id=centre_id, test_id=test_id)
+        centre = offering.centre
+        violation = check_appointment(
+            appointment_at,
+            now=now,
+            opens_at=centre.opens_at,
+            closes_at=centre.closes_at,
+            timezone=centre.timezone,
+            policy=AppointmentPolicy.from_settings(),
+        )
+        if violation is not None:
+            raise FieldValidationError(
+                field="appointment_at", code=violation.code, message=violation.message
+            )
+
+        booking = Booking(
+            user=user,
+            offering=offering,
+            appointment_at=appointment_at,
+            amount=offering.price,
+            currency=offering.currency,
+            status=BookingStatus.PENDING,
+            hold_expires_at=min(now + settings.BOOKING_HOLD, appointment_at),
+            idempotency_key=idempotency_key.value if idempotency_key else "",
+            request_fingerprint=idempotency_key.fingerprint if idempotency_key else "",
+        )
+        if offering.slot_capacity is not None:
+            _ensure_place_left(booking, capacity=offering.slot_capacity, now=now)
         # The partial unique index decides duplicates, including two identical requests racing.
         conflicts = {"bookings_one_active_per_slot": lambda: _duplicate_error(booking)}
         with translate_integrity_errors(conflicts):
@@ -195,6 +206,34 @@ def _bookable_offering(*, centre_id: UUID, test_id: UUID) -> Offering:
         diagnostic_test_get(test_id=test_id)
         raise NotOffered()
     return offering
+
+
+def _booking_for_key(user: User, key: IdempotencyKey) -> Booking | None:
+    """The booking an earlier request with this key made, if any. Needs a transaction."""
+    key.lock("bookings", user.id)
+    booking = Booking.objects.filter(user=user, idempotency_key=key.value).first()
+    if booking is not None:
+        key.ensure_same_request(booking.request_fingerprint)
+        log.info("booking.idempotent_replay", booking_id=str(booking.id))
+    return booking
+
+
+def _ensure_place_left(booking: Booking, *, capacity: int, now: datetime) -> None:
+    """Refuse a booking for a full slot.
+
+    The slot is locked until the transaction commits, so two requests for its last place can't
+    both count it as free; requests for other slots don't wait. Counting the bookings that hold
+    the slot, rather than keeping a counter, means no other path (cancelling, failing, expiring)
+    has anything to update.
+    """
+    advisory_xact_lock(f"slot:{booking.offering_id}:{booking.appointment_at.timestamp():.0f}")
+    holders = bookings_holding_slots(offering_id=booking.offering_id, now=now).filter(
+        appointment_at=booking.appointment_at
+    )
+    if holders.count() >= capacity:
+        if holders.filter(user=booking.user).exists():
+            raise _duplicate_error(booking)  # one of the places taken is the caller's own
+        raise SlotFull()
 
 
 def _duplicate_error(booking: Booking) -> DuplicateBooking:

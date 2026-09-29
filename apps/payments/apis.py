@@ -12,7 +12,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
-from apps.core.openapi import problem_responses
+from apps.core.idempotency import idempotency_key
+from apps.core.openapi import IDEMPOTENCY_KEY_PARAMETER, problem_responses
 from apps.payments.models import PaymentStatus
 from apps.payments.selectors import payment_get
 from apps.payments.serializers import (
@@ -40,20 +41,23 @@ class PaymentCreateApi(APIView):
             "is still pending, in which case the result arrives by webhook.\n\n"
             "Also served at `POST /payments/`, the path named in the assignment brief."
         ),
+        parameters=[IDEMPOTENCY_KEY_PARAMETER],
         request=PaymentCreateSerializer,
         responses={
             201: PaymentSerializer,
             202: OpenApiResponse(PaymentSerializer, description="Outcome pending"),
-            **problem_responses(400, 401, 404, 409, 429),
+            **problem_responses(400, 401, 404, 409, 422, 429),
         },
     )
     def post(self, request: Request) -> Response:
         serializer = PaymentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         payment = payment_initiate(
             user=request.user,
-            booking_id=serializer.validated_data["booking_id"],
-            method=serializer.validated_data.get("payment_method"),
+            booking_id=data["booking_id"],
+            method=data["payment_method"],
+            idempotency_key=idempotency_key(request, data),
         )
         payment = payment_get(payment_id=payment.id, user=request.user)
         location = reverse("payments:payment-detail", kwargs={"payment_id": payment.id})

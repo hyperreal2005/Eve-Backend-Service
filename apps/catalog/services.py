@@ -132,11 +132,18 @@ def diagnostic_test_deactivate(*, test: DiagnosticTest) -> None:
 
 
 def offering_create(
-    *, centre: DiagnosticCentre, test: DiagnosticTest, price: int, is_active: bool = True
+    *,
+    centre: DiagnosticCentre,
+    test: DiagnosticTest,
+    price: int,
+    slot_capacity: int | None = None,
+    is_active: bool = True,
 ) -> Offering:
     if not test.is_active:
         raise DiagnosticTestInactive()
-    offering = Offering(centre=centre, test=test, price=price, is_active=is_active)
+    offering = Offering(
+        centre=centre, test=test, price=price, slot_capacity=slot_capacity, is_active=is_active
+    )
     with translate_integrity_errors(_OFFERING_CONFLICTS):
         offering.save()
     log.info("catalog.offering_created", offering_id=str(offering.id), price=price)

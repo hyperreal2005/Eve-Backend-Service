@@ -9,3 +9,10 @@ class UnreachableGateway(MockPayGateway):
 
     def fetch(self, *, reference: UUID) -> PaymentResult | None:
         raise GatewayError("provider unreachable")
+
+
+class DownGateway(MockPayGateway):
+    """A provider that can't be reached at all: nothing gets charged."""
+
+    def charge(self, *, reference: UUID, amount: int, currency: str, method: str) -> PaymentResult:
+        raise GatewayError("provider unreachable")

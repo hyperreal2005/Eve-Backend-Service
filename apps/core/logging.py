@@ -78,5 +78,7 @@ def build_logging_config(*, json_logs: bool, level: str) -> dict[str, Any]:
             # duplicate it.
             "django.request": {"level": "ERROR"},
             "django.server": {"level": "WARNING"},
+            # One INFO line per outgoing request; webhook deliveries log their own outcome.
+            "httpx": {"level": "WARNING"},
         },
     }

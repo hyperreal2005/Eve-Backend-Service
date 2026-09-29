@@ -18,6 +18,7 @@ from apps.bookings.models import ActorType, Booking, BookingStatus, BookingStatu
 from apps.bookings.selectors import booking_lock
 from apps.bookings.services import booking_transition
 from apps.core.db import translate_integrity_errors
+from apps.core.idempotency import IdempotencyKey
 from apps.payments.domain import Outcome, decide
 from apps.payments.errors import (
     BookingAlreadyPaid,
@@ -47,7 +48,13 @@ _ACTOR = {
 }
 
 
-def payment_initiate(*, user: User, booking_id: UUID, method: str | None = None) -> Payment:
+def payment_initiate(
+    *,
+    user: User,
+    booking_id: UUID,
+    method: str | None = None,
+    idempotency_key: IdempotencyKey | None = None,
+) -> Payment:
     """Pay for one of the caller's bookings, in three steps.
 
     A. Lock the booking, check it's payable and record the payment as PENDING. Commit.
@@ -57,11 +64,21 @@ def payment_initiate(*, user: User, booking_id: UUID, method: str | None = None)
     A crash after A or B leaves a PENDING payment that the webhook or reconciliation completes,
     because the provider knows the charge by our payment id. If the provider can't be reached,
     the outcome is unknown, not failed: the payment stays PENDING.
+
+    A retry with the same idempotency key gets the same payment. If it is still PENDING (the
+    first attempt may have died before charging), B and C run again: the provider's charge is
+    idempotent on our payment id, so this finishes the payment and can't charge twice.
     """
     gateway = get_gateway()
     payment = _record_intent(
-        user=user, booking_id=booking_id, gateway=gateway, method=method or gateway.default_method
+        user=user,
+        booking_id=booking_id,
+        gateway=gateway,
+        method=method or gateway.default_method,
+        idempotency_key=idempotency_key,
     )
+    if payment.status != PaymentStatus.PENDING:
+        return payment  # a retried request for a payment that has already settled
     try:
         result = gateway.charge(
             reference=payment.id,
@@ -181,10 +198,19 @@ def payment_reconcile_stale(*, older_than: timedelta, limit: int = 100) -> dict[
 
 
 def _record_intent(
-    *, user: User, booking_id: UUID, gateway: PaymentGateway, method: str
+    *,
+    user: User,
+    booking_id: UUID,
+    gateway: PaymentGateway,
+    method: str,
+    idempotency_key: IdempotencyKey | None,
 ) -> Payment:
     expired = False
     with transaction.atomic():
+        if idempotency_key is not None:
+            earlier = _payment_for_key(user, idempotency_key)
+            if earlier is not None:
+                return earlier
         # Only the patient pays for their booking; anyone else gets the same 404 as a missing one.
         booking = booking_lock(booking_id=booking_id, user=user, owner_only=True)
         if _hold_expired(booking):
@@ -204,6 +230,8 @@ def _record_intent(
                 currency=booking.currency,
                 method=method,
                 provider=gateway.name,
+                idempotency_key=idempotency_key.value if idempotency_key else "",
+                request_fingerprint=idempotency_key.fingerprint if idempotency_key else "",
             )
             # Backstop for the check above: at most one live payment per booking, even in a race.
             with translate_integrity_errors({"payments_one_live_per_booking": PaymentInProgress}):
@@ -217,6 +245,20 @@ def _record_intent(
         amount=payment.amount,
         method=method,
     )
+    return payment
+
+
+def _payment_for_key(user: User, key: IdempotencyKey) -> Payment | None:
+    """The payment an earlier request with this key made, if any. Needs a transaction.
+
+    The key is taken before any booking lock (the lock order is key, booking, payment), and is
+    scoped to the patient, so reusing it for another booking is caught too.
+    """
+    key.lock("payments", user.id)
+    payment = Payment.objects.filter(booking__user=user, idempotency_key=key.value).first()
+    if payment is not None:
+        key.ensure_same_request(payment.request_fingerprint)
+        log.info("payment.idempotent_replay", payment_id=str(payment.id), status=payment.status)
     return payment
 
 

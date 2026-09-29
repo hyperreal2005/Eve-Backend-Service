@@ -57,6 +57,19 @@ def retry_on_transient_errors[T](
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+def advisory_xact_lock(name: str) -> None:
+    """Take a PostgreSQL advisory lock on `name`, held until the current transaction ends.
+
+    For serialising work on something that has no row to lock, such as an appointment slot or a
+    client's idempotency key. Names are hashed to 64 bits: a collision only makes unrelated work
+    wait, never go wrong. Waiting is bounded by the connection's `lock_timeout`.
+    """
+    if not connection.in_atomic_block:
+        raise RuntimeError("advisory_xact_lock needs a transaction: the lock ends with it.")
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [name])
+
+
 @contextmanager
 def translate_integrity_errors(conflicts: Mapping[str, Callable[[], Exception]]) -> Iterator[None]:
     """Run the block in a savepoint and turn known constraint violations into domain errors.

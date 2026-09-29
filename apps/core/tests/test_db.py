@@ -2,7 +2,7 @@ import pytest
 from django.db import IntegrityError, OperationalError, transaction
 from psycopg import errors as pg_errors
 
-from apps.core.db import is_transient_db_error, retry_on_transient_errors
+from apps.core.db import advisory_xact_lock, is_transient_db_error, retry_on_transient_errors
 
 
 def lock_timeout() -> OperationalError:
@@ -55,3 +55,11 @@ def test_no_retry_inside_an_enclosing_transaction():
     with pytest.raises(OperationalError), transaction.atomic():
         retry_on_transient_errors(work, sleep=lambda _: None)
     assert work.calls == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_advisory_lock_needs_a_transaction_to_end_with():
+    with pytest.raises(RuntimeError):
+        advisory_xact_lock("slot:anything")
+    with transaction.atomic():
+        advisory_xact_lock("slot:anything")  # released when the transaction ends

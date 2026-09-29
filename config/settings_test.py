@@ -15,6 +15,9 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # Throttle counters live in the cache. A per-process cache that every test clears keeps tests
 # independent of each other and of a running Redis.
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+# Factories write catalogue rows directly; a response cache would hide them from later requests.
+# The cache's own tests switch it on.
+CATALOG_CACHE_SECONDS = 0
 
 # The manifest storage and WhiteNoise's startup scan both expect `collectstatic` output, which
 # tests don't produce; serve static files on demand instead.

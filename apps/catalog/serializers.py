@@ -17,6 +17,8 @@ from apps.core.serializers import StrictInputSerializer
 # A generous upper bound (₹10 lakh) that still catches an extra zero typed into a price.
 MAX_PRICE_PAISE = 100_000_000
 PRICE_HELP = "In paise (1/100 rupee): 150000 means ₹1,500.00."
+MAX_SLOT_CAPACITY = 1000
+CAPACITY_HELP = "Patients per appointment slot (e.g. 1 for an MRI scanner); null means no limit."
 
 
 @cache
@@ -81,9 +83,20 @@ class DiagnosticTestWriteSerializer(StrictInputSerializer):
     is_active = serializers.BooleanField(required=False)
 
 
+def _slot_capacity_field() -> serializers.IntegerField:
+    return serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_SLOT_CAPACITY,
+        allow_null=True,
+        required=False,
+        help_text=CAPACITY_HELP,
+    )
+
+
 class OfferingCreateSerializer(StrictInputSerializer):
     test_id = serializers.UUIDField()
     price = serializers.IntegerField(min_value=1, max_value=MAX_PRICE_PAISE, help_text=PRICE_HELP)
+    slot_capacity = _slot_capacity_field()
     is_active = serializers.BooleanField(required=False)
 
 
@@ -91,6 +104,7 @@ class OfferingUpdateSerializer(StrictInputSerializer):
     price = serializers.IntegerField(
         min_value=1, max_value=MAX_PRICE_PAISE, required=False, help_text=PRICE_HELP
     )
+    slot_capacity = _slot_capacity_field()
     is_active = serializers.BooleanField(required=False)
 
 
@@ -155,10 +169,13 @@ class OfferingSerializer(serializers.ModelSerializer):
 
     test = DiagnosticTestSummarySerializer()
     price = serializers.IntegerField(read_only=True, help_text=PRICE_HELP)
+    slot_capacity = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text=CAPACITY_HELP
+    )
 
     class Meta:
         model = Offering
-        fields = ("test", "price", "currency", "is_active", "updated_at")
+        fields = ("test", "price", "currency", "slot_capacity", "is_active", "updated_at")
         read_only_fields = fields
 
 

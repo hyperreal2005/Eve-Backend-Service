@@ -38,3 +38,12 @@ def test_seed_demo_never_overwrites_existing_rows():
     Offering.objects.update(price=12_345)
     seed()
     assert set(Offering.objects.values_list("price", flat=True)) == {12_345}
+
+
+def test_seed_demo_limits_places_only_for_tests_bound_to_one_machine():
+    seed()
+    mri = Offering.objects.filter(test__code="MRI_BRAIN")
+    assert set(mri.values_list("slot_capacity", flat=True)) == {1}
+    assert set(
+        Offering.objects.filter(test__code="CBC").values_list("slot_capacity", flat=True)
+    ) == {None}

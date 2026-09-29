@@ -286,6 +286,27 @@ def test_admin_changes_a_price(admin_client):
     assert (response.json()["price"], response.json()["is_active"]) == (90_000, True)
 
 
+def test_admin_sets_and_clears_a_slot_capacity(admin_client):
+    centre, test = DiagnosticCentreFactory(), DiagnosticTestFactory()
+    created = admin_client.post(
+        offerings_url(centre.id), {"test_id": str(test.id), "price": 650_000, "slot_capacity": 1}
+    )
+    assert created.json()["slot_capacity"] == 1
+    url = offering_url(centre.id, test.id)
+    assert admin_client.patch(url, {"slot_capacity": 3}).json()["slot_capacity"] == 3
+    assert admin_client.patch(url, {"slot_capacity": None}).json()["slot_capacity"] is None
+
+
+@pytest.mark.parametrize(("capacity", "code"), [(0, "min_value"), (1001, "max_value")])
+def test_a_slot_capacity_is_at_least_one(admin_client, capacity, code):
+    offering = OfferingFactory()
+    url = offering_url(offering.centre.id, offering.test.id)
+    body = assert_problem(
+        admin_client.patch(url, {"slot_capacity": capacity}), 400, "VALIDATION_ERROR"
+    )
+    assert ("slot_capacity", code) in field_errors(body)
+
+
 def test_a_withdrawn_offering_leaves_the_public_catalogue(api_client, admin_client):
     offering = OfferingFactory()
     url = offering_url(offering.centre.id, offering.test.id)
